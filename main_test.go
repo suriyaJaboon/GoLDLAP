@@ -2,7 +2,6 @@ package main
 
 import (
 	"errors"
-	"fmt"
 	"testing"
 
 	"github.com/go-ldap/ldap/v3"
@@ -22,7 +21,6 @@ func TestConnectSuccess(t *testing.T) {
 func TestConnectError(t *testing.T) {
 	c, err := connect()
 	if err != nil {
-		fmt.Println(err)
 		var e *ldap.Error
 		if !errors.As(err, &e) {
 			t.Fatal(err)
