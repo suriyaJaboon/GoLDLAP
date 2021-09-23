@@ -13,8 +13,8 @@ const (
 	addr     = "127.0.0.1"
 	port     = 389
 	protocol = "tcp"
-	base     = "dc=softnix,dc=co,dc=th"
-	username = "cn=admin,dc=softnix,dc=co,dc=th"
+	base     = "dc=example,dc=co,dc=th"
+	username = "cn=admin,dc=example,dc=co,dc=th"
 	password = "P@ssw0rd"
 )
 
