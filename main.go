@@ -1,64 +1,69 @@
 package main
 
 import (
-	"net"
-	"strconv"
+	"log"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
-	"github.com/go-ldap/ldap/v3"
+	"github.com/gofiber/fiber/v2"
 )
 
-const (
-	addr     = "127.0.0.1"
-	port     = 389
-	protocol = "tcp"
-	base     = "dc=example,dc=co,dc=th"
-	username = "cn=admin,dc=example,dc=co,dc=th"
-	password = "P@ssw0rd"
-)
-
-type client struct {
-	*ldap.Conn
-}
-
-func connect() (*client, error) {
-	c, err := ldap.Dial(protocol, net.JoinHostPort(addr, strconv.Itoa(port)))
-	if err != nil {
-		return nil, err
+func recovered() {
+	if r := recover(); r != nil {
+		log.Fatalf("[%s]: recovered in -> %v", value, r)
 	}
-
-	if err = c.Bind(username, password); err != nil {
-		return nil, err
-	}
-
-	return &client{c}, nil
 }
 
 func main() {
-	c, err := connect()
+	defer recovered()
+
+	con, err := connect()
 	if err != nil {
 		panic(err)
 	}
+	defer con.Close()
 
-	defer c.Close()
+	s := &Server{fiber: fiber.New(Config), c: con}
+	s.use()
 
-	var search = &ldap.SearchRequest{
-		BaseDN:       base,
-		Scope:        ldap.ScopeWholeSubtree,
-		DerefAliases: ldap.NeverDerefAliases,
-		SizeLimit:    0,
-		TimeLimit:    0,
-		TypesOnly:    false,
-		Filter:       "(&(objectClass=*))",
-		Attributes:   []string{"*"},
-		Controls:     nil,
-	}
+	s.fiber.Get("/", func(c *fiber.Ctx) error {
+		return c.JSON(&response{Timestamp: time.Now(), Code: "OK", Message: "Hello, World 👋!"})
+	})
+	s.fiber.Post("/search", func(c *fiber.Ctx) error {
+		var dto *search
+		if err = c.BodyParser(&dto); err != nil {
+			return c.Status(fiber.StatusBadRequest).
+				JSON(&response{Timestamp: time.Now(), Code: "BODY-PARSER", Message: fiber.ErrServiceUnavailable.Error()})
+		}
+		if errs := s.validate(*dto); len(errs) > 0 {
+			return c.Status(fiber.StatusNotAcceptable).JSONP(&errorValidator{
+				Code:           "VALIDATOR",
+				Message:        syscall.Errno(01).Error(),
+				ErrorResponses: errs,
+			})
+		}
 
-	results, err := c.Search(search)
-	if err != nil {
-		panic(err)
-	}
+		entries, err := s.c.search(dto)
+		if err != nil {
+			return err
+		}
 
-	for _, ent := range results.Entries {
-		println(ent.DN)
-	}
+		return c.JSON(entries)
+	})
+	s.fiber.Use(
+		func(c *fiber.Ctx) error {
+			return c.Status(fiber.StatusNotFound).
+				JSON(&response{Timestamp: time.Now(), Code: "NOTFOUND", Message: "not found route: " + c.Path()})
+		},
+	)
+
+	go s.start()
+
+	c := make(chan os.Signal, 4)
+	signal.Notify(c, os.Interrupt, syscall.SIGINT, syscall.SIGTERM, syscall.SIGKILL)
+	<-c
+
+	s.stop()
 }
